@@ -22,6 +22,17 @@ from tvbwidgets.ui.base_widget import TVBWidget
 
 LOGGER = get_logger(__name__)
 
+from IPython.display import HTML 
+display(HTML('''
+<style>
+.resizable-box {
+    resize: both;
+    overflow: auto;
+    border: 1px solid #ccc;
+    padding: 5px;
+}
+</style>
+'''))
 
 class ConnectivityMatrixEditor(TVBWidget):
     def __init__(self, connectivity, size=None, **kwargs):
@@ -91,6 +102,48 @@ class ConnectivityMatrixEditor(TVBWidget):
         # indexing starts from this row and col
         self.from_row = from_row
         self.from_col = from_col
+    def highlight_selected_cell(self):
+        if hasattr(self, 'clicked_matrix') and hasattr(self, 'row') and hasattr(self, 'col'):
+            matrix_ = getattr(self, f"{self.clicked_matrix}_matrix")
+            highlight_layer = matrix_[5]
+            highlight_layer.clear()
+            x = self.layout_offset + self.col * self.cell_size
+            y = self.layout_offset + self.row * self.cell_size
+            highlight_layer.stroke_style = "white"
+            highlight_layer.line_width = 3
+            highlight_layer.stroke_rect(x, y, self.cell_size, self.cell_size)
+    
+            # Update the cell value display
+            connectivity = self.new_connectivity if self.is_connectivity_being_edited else self.connectivity
+            matrix = getattr(connectivity, self.clicked_matrix)
+            value = matrix[int(self.from_row + self.row)][int(self.from_col + self.col)]
+            self.cell_value.value = f"{value}"
+
+        
+    def on_key_down_event(self, key, shift_key=False, ctrl_key=False, meta_key=False):
+        if not hasattr(self, 'row') or not hasattr(self, 'col'):
+            return  # No cell selected yet
+    
+        delta_row, delta_col = 0, 0
+        if key == "ArrowUp":
+            delta_row = -1
+        elif key == "ArrowDown":
+            delta_row = 1
+        elif key == "ArrowLeft":
+            delta_col = -1
+        elif key == "ArrowRight":
+            delta_col = 1
+        elif key == "Enter":
+            self.cell_value.focus()
+            return
+    
+        new_row = self.row + delta_row
+        new_col = self.col + delta_col
+    
+        if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_rows:
+            self.row = new_row
+            self.col = new_col
+            self.highlight_selected_cell()
 
     def _prepare_matrices_tab(self):
         self.weights_matrix = self._prepare_matrix("weights")
@@ -101,7 +154,13 @@ class ConnectivityMatrixEditor(TVBWidget):
 
         self.tract_lengths_matrix.on_mouse_down(lambda x, y: self.on_cell_clicked(x, y, "tract_lengths"))
         self.tract_lengths_matrix.on_mouse_move(self.set_mouse_position)
-
+        self.weights_matrix.on_key_down(self.on_key_down_event)
+        self.tract_lengths_matrix.on_key_down(self.on_key_down_event)
+        
+        # Enable keyboard focus
+        self.weights_matrix.focus()
+        self.tract_lengths_matrix.focus()
+        
         out1 = widgets.Output()
         out2 = widgets.Output()
 
@@ -112,13 +171,14 @@ class ConnectivityMatrixEditor(TVBWidget):
             display(self.tract_lengths_matrix)
 
         container1 = widgets.Box([out1], layout=widgets.Layout(
-            width='1200px',
-            height='600px',
-            overflow_x='auto',
-            overflow_y='auto',
-        ))
+            width='auto',
+            height='auto',
+        ), _dom_classes=['resizable-box'])
 
-        container2 = widgets.Box([out2], layout=container1.layout)
+        container2 = widgets.Box([out2], layout=widgets.Layout(
+            width='auto',
+            height='auto',
+        ), _dom_classes=['resizable-box'])
 
         self.tab.children = [container1, container2]
         self.tab.set_title(0, "weights")
@@ -212,7 +272,7 @@ class ConnectivityMatrixEditor(TVBWidget):
         x_coord, y_coord = self.x_coord, self.y_coord
         col = ((x_coord - self.layout_offset) // self.cell_size)
         row = ((y_coord - self.layout_offset) // self.cell_size)
-
+    
         if -1 < row < self.num_rows and -1 < col < self.num_rows:
             self.row = row
             self.col = col
@@ -220,21 +280,25 @@ class ConnectivityMatrixEditor(TVBWidget):
             matrix = getattr(connectivity, matrix_name)
             value = matrix[int(self.from_row + self.row)][int(self.from_col + self.col)]
             self.cell_value.value = f"{value}"
-
+    
             self.cell_value.layout.visibility = "visible"
             self.change_button.layout.visibility = "visible"
-
+    
             matrix_ = self.clicked_matrix + "_matrix"
             matrix_ui = getattr(self, matrix_)
-
+    
             x = self.layout_offset + self.col * self.cell_size
             y = self.layout_offset + self.row * self.cell_size
-
+    
             with canvas.hold_canvas(matrix_ui[5]):
                 matrix_ui[5].clear()
                 matrix_ui[5].line_width = 2
                 matrix_ui[5].stroke_style = "white"
                 matrix_ui[5].stroke_rect(x, y, self.cell_size, self.cell_size)
+        self.highlight_selected_cell()
+    
+             
+                
 
     def on_apply_change(self, change):
         self.is_connectivity_being_edited = True
